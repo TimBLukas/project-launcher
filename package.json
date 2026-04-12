@@ -1,23 +1,100 @@
 {
-  "name": "projectfile-manager",
-  "displayName": "projectfile-manager",
-  "description": "",
+  "name": "project-launcher",
+  "displayName": "Project Launcher",
+  "description": "Manage saved projects and auto-track recent workspace history.",
   "version": "0.0.1",
   "engines": {
-    "vscode": "^1.115.0"
+    "vscode": "^1.114.0"
   },
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onStartupFinished",
+    "onView:projectLauncherView",
+    "onCommand:projectLauncher.addCurrentProject",
+    "onCommand:projectLauncher.openProject",
+    "onCommand:projectLauncher.removeProject",
+    "onCommand:projectLauncher.refresh"
+  ],
   "main": "./out/extension.js",
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "projectLauncher",
+          "title": "Project Launcher",
+          "icon": "resources/project-launcher.svg"
+        }
+      ]
+    },
+    "views": {
+      "projectLauncher": [
+        {
+          "id": "projectLauncherView",
+          "name": "Library",
+          "contextualTitle": "Project Launcher"
+        }
+      ]
+    },
     "commands": [
       {
-        "command": "projectfile-manager.helloWorld",
-        "title": "Hello World"
+        "command": "projectLauncher.addCurrentProject",
+        "title": "Project Launcher: Add Current Project",
+        "category": "Project Launcher"
+      },
+      {
+        "command": "projectLauncher.openProject",
+        "title": "Project Launcher: Open Project",
+        "category": "Project Launcher"
+      },
+      {
+        "command": "projectLauncher.removeProject",
+        "title": "Project Launcher: Remove Project",
+        "category": "Project Launcher"
+      },
+      {
+        "command": "projectLauncher.refresh",
+        "title": "Project Launcher: Refresh",
+        "category": "Project Launcher"
       }
-    ]
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "projectLauncher.addCurrentProject",
+          "when": "view == projectLauncherView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "projectLauncher.refresh",
+          "when": "view == projectLauncherView",
+          "group": "navigation@2"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "projectLauncher.openProject",
+          "when": "view == projectLauncherView && (viewItem == project.saved || viewItem == project.history)",
+          "group": "inline@1"
+        },
+        {
+          "command": "projectLauncher.removeProject",
+          "when": "view == projectLauncherView && viewItem == project.saved",
+          "group": "inline@2"
+        },
+        {
+          "command": "projectLauncher.openProject",
+          "when": "view == projectLauncherView && (viewItem == project.saved || viewItem == project.history)",
+          "group": "navigation@1"
+        },
+        {
+          "command": "projectLauncher.removeProject",
+          "when": "view == projectLauncherView && viewItem == project.saved",
+          "group": "navigation@2"
+        }
+      ]
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",

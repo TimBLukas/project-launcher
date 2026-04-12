@@ -1,6 +1,6 @@
-# projectfile-manager README
+# project-launcher README
 
-This is the README for your extension "projectfile-manager". After writing up a brief description, we recommend including the following sections.
+This is the README for your extension "project-launcher". After writing up a brief description, we recommend including the following sections.
 
 ## Features
 
