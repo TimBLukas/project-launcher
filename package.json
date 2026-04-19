@@ -3,11 +3,19 @@
   "displayName": "Project Launcher",
   "description": "Manage saved projects and auto-track recent workspace history.",
   "version": "0.0.1",
+  "publisher": "timblukas",
   "engines": {
-    "vscode": "^1.114.0"
+    "vscode": "^1.115.0"
   },
   "categories": [
     "Other"
+  ],
+  "keywords": [
+    "projects",
+    "workspace",
+    "launcher",
+    "history",
+    "favorites"
   ],
   "activationEvents": [
     "onStartupFinished",
@@ -15,9 +23,19 @@
     "onCommand:projectLauncher.addCurrentProject",
     "onCommand:projectLauncher.openProject",
     "onCommand:projectLauncher.removeProject",
+    "onCommand:projectLauncher.pinProject",
+    "onCommand:projectLauncher.unpinProject",
+    "onCommand:projectLauncher.removeHistoryProject",
+    "onCommand:projectLauncher.clearHistory",
+    "onCommand:projectLauncher.filterProjects",
+    "onCommand:projectLauncher.clearFilter",
     "onCommand:projectLauncher.refresh"
   ],
   "main": "./out/extension.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TimBLukas/project-launcher.git"
+  },
   "contributes": {
     "viewsContainers": {
       "activitybar": [
@@ -50,7 +68,37 @@
       },
       {
         "command": "projectLauncher.removeProject",
-        "title": "Project Launcher: Remove Project",
+        "title": "Project Launcher: Remove Saved Project",
+        "category": "Project Launcher"
+      },
+      {
+        "command": "projectLauncher.pinProject",
+        "title": "Project Launcher: Pin Saved Project",
+        "category": "Project Launcher"
+      },
+      {
+        "command": "projectLauncher.unpinProject",
+        "title": "Project Launcher: Unpin Saved Project",
+        "category": "Project Launcher"
+      },
+      {
+        "command": "projectLauncher.removeHistoryProject",
+        "title": "Project Launcher: Remove History Entry",
+        "category": "Project Launcher"
+      },
+      {
+        "command": "projectLauncher.clearHistory",
+        "title": "Project Launcher: Clear History",
+        "category": "Project Launcher"
+      },
+      {
+        "command": "projectLauncher.filterProjects",
+        "title": "Project Launcher: Filter Projects",
+        "category": "Project Launcher"
+      },
+      {
+        "command": "projectLauncher.clearFilter",
+        "title": "Project Launcher: Clear Project Filter",
         "category": "Project Launcher"
       },
       {
@@ -67,33 +115,138 @@
           "group": "navigation@1"
         },
         {
-          "command": "projectLauncher.refresh",
+          "command": "projectLauncher.filterProjects",
           "when": "view == projectLauncherView",
           "group": "navigation@2"
+        },
+        {
+          "command": "projectLauncher.clearFilter",
+          "when": "view == projectLauncherView",
+          "group": "navigation@3"
+        },
+        {
+          "command": "projectLauncher.refresh",
+          "when": "view == projectLauncherView",
+          "group": "navigation@4"
+        },
+        {
+          "command": "projectLauncher.clearHistory",
+          "when": "view == projectLauncherView",
+          "group": "navigation@5"
         }
       ],
       "view/item/context": [
         {
           "command": "projectLauncher.openProject",
-          "when": "view == projectLauncherView && (viewItem == project.saved || viewItem == project.history)",
+          "when": "view == projectLauncherView && (viewItem == project.saved.pinned || viewItem == project.saved.unpinned || viewItem == project.history)",
           "group": "inline@1"
         },
         {
-          "command": "projectLauncher.removeProject",
-          "when": "view == projectLauncherView && viewItem == project.saved",
+          "command": "projectLauncher.pinProject",
+          "when": "view == projectLauncherView && viewItem == project.saved.unpinned",
           "group": "inline@2"
         },
         {
-          "command": "projectLauncher.openProject",
-          "when": "view == projectLauncherView && (viewItem == project.saved || viewItem == project.history)",
-          "group": "navigation@1"
+          "command": "projectLauncher.unpinProject",
+          "when": "view == projectLauncherView && viewItem == project.saved.pinned",
+          "group": "inline@3"
         },
         {
           "command": "projectLauncher.removeProject",
-          "when": "view == projectLauncherView && viewItem == project.saved",
+          "when": "view == projectLauncherView && (viewItem == project.saved.pinned || viewItem == project.saved.unpinned)",
+          "group": "inline@4"
+        },
+        {
+          "command": "projectLauncher.removeHistoryProject",
+          "when": "view == projectLauncherView && viewItem == project.history",
+          "group": "inline@5"
+        },
+        {
+          "command": "projectLauncher.openProject",
+          "when": "view == projectLauncherView && (viewItem == project.saved.pinned || viewItem == project.saved.unpinned || viewItem == project.history)",
+          "group": "navigation@1"
+        },
+        {
+          "command": "projectLauncher.pinProject",
+          "when": "view == projectLauncherView && viewItem == project.saved.unpinned",
           "group": "navigation@2"
+        },
+        {
+          "command": "projectLauncher.unpinProject",
+          "when": "view == projectLauncherView && viewItem == project.saved.pinned",
+          "group": "navigation@3"
+        },
+        {
+          "command": "projectLauncher.removeProject",
+          "when": "view == projectLauncherView && (viewItem == project.saved.pinned || viewItem == project.saved.unpinned)",
+          "group": "navigation@4"
+        },
+        {
+          "command": "projectLauncher.removeHistoryProject",
+          "when": "view == projectLauncherView && viewItem == project.history",
+          "group": "navigation@5"
         }
       ]
+    },
+    "configuration": {
+      "title": "Project Launcher",
+      "properties": {
+        "projectLauncher.maxHistoryEntries": {
+          "type": "number",
+          "default": 100,
+          "minimum": 1,
+          "maximum": 5000,
+          "description": "Maximum number of recent history entries to retain."
+        },
+        "projectLauncher.maxProjectScanDepth": {
+          "type": "number",
+          "default": 2,
+          "minimum": 0,
+          "maximum": 8,
+          "description": "Maximum folder depth used for project type detection."
+        },
+        "projectLauncher.maxProjectScanDirectories": {
+          "type": "number",
+          "default": 250,
+          "minimum": 1,
+          "maximum": 10000,
+          "description": "Maximum number of directories scanned while detecting project type."
+        },
+        "projectLauncher.skipDirectories": {
+          "type": "array",
+          "default": [
+            "node_modules",
+            ".git",
+            "dist",
+            "build",
+            ".venv",
+            "venv",
+            ".next",
+            "target"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "description": "Directory names excluded from deep project type scans."
+        },
+        "projectLauncher.openInNewWindow": {
+          "type": "boolean",
+          "default": false,
+          "description": "Open selected projects in a new VS Code window."
+        },
+        "projectLauncher.enableTypeDetectionCache": {
+          "type": "boolean",
+          "default": true,
+          "description": "Cache project type detection results for faster repeated operations."
+        },
+        "projectLauncher.typeDetectionCacheTtlMs": {
+          "type": "number",
+          "default": 300000,
+          "minimum": 1000,
+          "maximum": 3600000,
+          "description": "How long project type detection cache entries stay valid (milliseconds)."
+        }
+      }
     }
   },
   "scripts": {
@@ -102,7 +255,8 @@
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src",
-    "test": "vscode-test"
+    "test": "vscode-test",
+    "package:vsix": "vsce package --no-yarn --skip-license"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
@@ -110,6 +264,7 @@
     "@types/vscode": "^1.115.0",
     "@vscode/test-cli": "^0.0.12",
     "@vscode/test-electron": "^2.5.2",
+    "@vscode/vsce": "^3.7.0",
     "eslint": "^9.39.3",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.56.1"

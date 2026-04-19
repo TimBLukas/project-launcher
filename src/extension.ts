@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { normalizePath } from './pathUtils';
 import { Project, ProjectService } from './projectService';
 import { ProjectProvider, ProjectTreeItem } from './projectProvider';
 
@@ -11,6 +12,8 @@ interface ProjectQuickPickItem extends vscode.QuickPickItem {
 	project: Project;
 	section: 'saved' | 'history';
 }
+
+type ProjectSelectionScope = 'saved' | 'history' | 'all';
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
 	const projectService = new ProjectService(context);
@@ -51,7 +54,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		const projectUri = vscode.Uri.file(selectedProject.project.path);
 		await projectService.addToHistory(projectUri);
 		projectProvider.refresh();
-		await vscode.commands.executeCommand('vscode.openFolder', projectUri, false);
+		await vscode.commands.executeCommand('vscode.openFolder', projectUri, getOpenInNewWindowSetting());
 	});
 
 	registerCommand(context, 'projectLauncher.removeProject', async (...args: unknown[]) => {
@@ -63,6 +66,70 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
 		await projectService.removeSavedProject(selectedProject.project.id);
 		projectProvider.refresh();
+	});
+
+	registerCommand(context, 'projectLauncher.pinProject', async (...args: unknown[]) => {
+		const item = toProjectTreeItem(args[0]);
+		const selectedProject = await resolveSavedProjectSelection(projectService, item, 'Select a project to pin');
+		if (!selectedProject) {
+			return;
+		}
+
+		await projectService.setSavedPinned(selectedProject.project.id, true);
+		projectProvider.refresh();
+	});
+
+	registerCommand(context, 'projectLauncher.unpinProject', async (...args: unknown[]) => {
+		const item = toProjectTreeItem(args[0]);
+		const selectedProject = await resolveSavedProjectSelection(projectService, item, 'Select a project to unpin');
+		if (!selectedProject) {
+			return;
+		}
+
+		await projectService.setSavedPinned(selectedProject.project.id, false);
+		projectProvider.refresh();
+	});
+
+	registerCommand(context, 'projectLauncher.removeHistoryProject', async (...args: unknown[]) => {
+		const item = toProjectTreeItem(args[0]);
+		const selectedProject = await resolveHistoryProjectSelection(projectService, item);
+		if (!selectedProject) {
+			return;
+		}
+
+		await projectService.removeHistoryProject(selectedProject.project.id);
+		projectProvider.refresh();
+	});
+
+	registerCommand(context, 'projectLauncher.clearHistory', async () => {
+		const confirmation = await vscode.window.showWarningMessage(
+			'Clear all recent history entries?',
+			{ modal: true },
+			'Clear History'
+		);
+		if (confirmation !== 'Clear History') {
+			return;
+		}
+
+		await projectService.clearHistory();
+		projectProvider.refresh();
+	});
+
+	registerCommand(context, 'projectLauncher.filterProjects', async () => {
+		const selectedFilter = await vscode.window.showInputBox({
+			prompt: 'Filter projects by name, path, or project type',
+			placeHolder: 'e.g. react, rust, /home/me/work',
+			value: projectProvider.getFilter() ?? ''
+		});
+		if (selectedFilter === undefined) {
+			return;
+		}
+
+		projectProvider.setFilter(selectedFilter);
+	});
+
+	registerCommand(context, 'projectLauncher.clearFilter', async () => {
+		projectProvider.clearFilter();
 	});
 
 	registerCommand(context, 'projectLauncher.refresh', async () => {
@@ -137,7 +204,7 @@ async function resolveProjectForOpen(
 		return { project: item.project, section: item.section };
 	}
 
-	return pickProject(projectService, 'all');
+	return pickProject(projectService, 'all', 'Select a project to open');
 }
 
 async function resolveProjectForRemoval(
@@ -149,34 +216,68 @@ async function resolveProjectForRemoval(
 	}
 
 	if (item?.nodeType === 'project' && item.section === 'history') {
-		await vscode.window.showWarningMessage('Only saved projects can be removed.');
+		await vscode.window.showWarningMessage('Only saved projects can be removed from the saved list.');
 		return undefined;
 	}
 
-	return pickProject(projectService, 'saved');
+	return pickProject(projectService, 'saved', 'Select a saved project to remove');
+}
+
+async function resolveSavedProjectSelection(
+	projectService: ProjectService,
+	item: ProjectTreeItem | undefined,
+	placeHolder: string
+): Promise<ProjectSelection | undefined> {
+	if (item?.nodeType === 'project' && item.section === 'saved' && item.project) {
+		return { project: item.project, section: 'saved' };
+	}
+
+	if (item?.nodeType === 'project' && item.section === 'history') {
+		await vscode.window.showWarningMessage('Only saved projects can be pinned.');
+		return undefined;
+	}
+
+	return pickProject(projectService, 'saved', placeHolder);
+}
+
+async function resolveHistoryProjectSelection(
+	projectService: ProjectService,
+	item: ProjectTreeItem | undefined
+): Promise<ProjectSelection | undefined> {
+	if (item?.nodeType === 'project' && item.section === 'history' && item.project) {
+		return { project: item.project, section: 'history' };
+	}
+
+	if (item?.nodeType === 'project' && item.section === 'saved') {
+		await vscode.window.showWarningMessage('Only history entries can be removed from history.');
+		return undefined;
+	}
+
+	return pickProject(projectService, 'history', 'Select a history entry to remove');
 }
 
 async function pickProject(
 	projectService: ProjectService,
-	selectionScope: 'saved' | 'all'
+	selectionScope: ProjectSelectionScope,
+	placeHolder: string
 ): Promise<ProjectSelection | undefined> {
-	const savedProjects = await projectService.getSavedProjects();
-	const historyProjects = selectionScope === 'all' ? await projectService.getHistoryProjects() : [];
-
+	const savedProjects = selectionScope === 'history' ? [] : await projectService.getSavedProjects();
+	const historyProjects = selectionScope === 'saved' ? [] : await projectService.getHistoryProjects();
 	const items: ProjectQuickPickItem[] = [];
+
 	for (const project of savedProjects) {
 		items.push({
-			label: project.name,
+			label: project.pinned ? `$(star-full) ${project.name}` : project.name,
 			description: `${project.type} • ${project.path}`,
 			project,
 			section: 'saved'
 		});
 	}
 
-	if (selectionScope === 'all') {
+	if (selectionScope !== 'saved') {
 		const savedPathSet = new Set(savedProjects.map((project) => normalizePath(project.path)));
 		for (const project of historyProjects) {
-			if (savedPathSet.has(normalizePath(project.path))) {
+			if (selectionScope === 'all' && savedPathSet.has(normalizePath(project.path))) {
 				continue;
 			}
 
@@ -190,19 +291,12 @@ async function pickProject(
 	}
 
 	if (items.length === 0) {
-		const message =
-			selectionScope === 'saved'
-				? 'No saved projects are available.'
-				: 'No saved projects or history entries are available.';
-		await vscode.window.showInformationMessage(message);
+		await vscode.window.showInformationMessage(emptySelectionMessage(selectionScope));
 		return undefined;
 	}
 
 	items.sort((left, right) => right.project.lastAccessed - left.project.lastAccessed);
-	const selectedItem = await vscode.window.showQuickPick(items, {
-		placeHolder: selectionScope === 'saved' ? 'Select a saved project' : 'Select a project to open'
-	});
-
+	const selectedItem = await vscode.window.showQuickPick(items, { placeHolder });
 	if (!selectedItem) {
 		return undefined;
 	}
@@ -213,12 +307,24 @@ async function pickProject(
 	};
 }
 
-function normalizePath(projectPath: string): string {
-	return process.platform === 'win32' ? projectPath.toLowerCase() : projectPath;
+function emptySelectionMessage(selectionScope: ProjectSelectionScope): string {
+	if (selectionScope === 'saved') {
+		return 'No saved projects are available.';
+	}
+
+	if (selectionScope === 'history') {
+		return 'No history entries are available.';
+	}
+
+	return 'No saved projects or history entries are available.';
 }
 
 function toProjectTreeItem(value: unknown): ProjectTreeItem | undefined {
 	return value instanceof ProjectTreeItem ? value : undefined;
+}
+
+function getOpenInNewWindowSetting(): boolean {
+	return vscode.workspace.getConfiguration('projectLauncher').get<boolean>('openInNewWindow', false);
 }
 
 function errorMessage(error: unknown): string {

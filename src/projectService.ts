@@ -1,6 +1,9 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
+import { ProjectConfigProvider, VscodeProjectConfigProvider } from './config';
+import { comparePaths, createProjectId } from './pathUtils';
+import { ProjectTypeDetector } from './projectTypeDetector';
 
 export type ProjectType = 'React' | 'Python' | 'Rust' | 'Go' | 'Generic';
 
@@ -10,16 +13,20 @@ export interface Project {
 	path: string;
 	type: ProjectType;
 	lastAccessed: number;
+	pinned?: boolean;
 }
 
 type ProjectListKey = 'projectLauncher.savedProjects' | 'projectLauncher.historyProjects';
 
 const SAVED_PROJECTS_KEY: ProjectListKey = 'projectLauncher.savedProjects';
 const HISTORY_PROJECTS_KEY: ProjectListKey = 'projectLauncher.historyProjects';
-const MAX_DEEP_SCAN_DEPTH = 2;
 
 export class ProjectService {
-	public constructor(private readonly context: vscode.ExtensionContext) {}
+	public constructor(
+		private readonly context: vscode.ExtensionContext,
+		private readonly configProvider: ProjectConfigProvider = new VscodeProjectConfigProvider(),
+		private readonly projectTypeDetector: ProjectTypeDetector = new ProjectTypeDetector()
+	) {}
 
 	public async addToSaved(folderUri: vscode.Uri): Promise<Project> {
 		const project = await this.createProject(folderUri.fsPath);
@@ -35,6 +42,32 @@ export class ProjectService {
 		const projects = await this.readProjects(SAVED_PROJECTS_KEY);
 		const nextProjects = projects.filter((project) => project.id !== projectId);
 		await this.writeProjects(SAVED_PROJECTS_KEY, nextProjects);
+	}
+
+	public async setSavedPinned(projectId: string, pinned: boolean): Promise<Project | undefined> {
+		const projects = await this.readProjects(SAVED_PROJECTS_KEY);
+		const projectIndex = projects.findIndex((project) => project.id === projectId);
+		if (projectIndex < 0) {
+			return undefined;
+		}
+
+		const updatedProject: Project = {
+			...projects[projectIndex],
+			pinned
+		};
+		projects.splice(projectIndex, 1, updatedProject);
+		await this.writeProjects(SAVED_PROJECTS_KEY, projects);
+		return updatedProject;
+	}
+
+	public async removeHistoryProject(projectId: string): Promise<void> {
+		const projects = await this.readProjects(HISTORY_PROJECTS_KEY);
+		const nextProjects = projects.filter((project) => project.id !== projectId);
+		await this.writeProjects(HISTORY_PROJECTS_KEY, nextProjects);
+	}
+
+	public async clearHistory(): Promise<void> {
+		await this.writeProjects(HISTORY_PROJECTS_KEY, []);
 	}
 
 	public async getSavedProjects(): Promise<Project[]> {
@@ -60,17 +93,24 @@ export class ProjectService {
 
 	private async createProject(folderPath: string): Promise<Project> {
 		const resolvedPath = path.resolve(folderPath);
-
 		if (!(await this.isValidFolder(resolvedPath))) {
 			throw new Error(`Folder does not exist: ${resolvedPath}`);
 		}
 
+		const config = this.configProvider.getConfig();
 		return {
 			id: createProjectId(resolvedPath),
 			name: path.basename(resolvedPath),
 			path: resolvedPath,
-			type: await detectProjectType(resolvedPath),
-			lastAccessed: Date.now()
+			type: await this.projectTypeDetector.detect(resolvedPath, {
+				maxDepth: config.maxProjectScanDepth,
+				maxScanDirectories: config.maxProjectScanDirectories,
+				skipDirectories: config.skipDirectories,
+				useCache: config.enableTypeDetectionCache,
+				cacheTtlMs: config.typeDetectionCacheTtlMs
+			}),
+			lastAccessed: Date.now(),
+			pinned: false
 		};
 	}
 
@@ -84,33 +124,62 @@ export class ProjectService {
 				...existingProject,
 				...incomingProject,
 				id: existingProject.id,
-				lastAccessed: Date.now()
+				lastAccessed: Date.now(),
+				pinned: storageKey === SAVED_PROJECTS_KEY ? existingProject.pinned ?? false : false
 			};
+
 			projects.splice(existingIndex, 1, updatedProject);
 			await this.writeProjects(storageKey, projects);
 			return updatedProject;
 		}
 
-		projects.unshift(incomingProject);
+		projects.unshift({
+			...incomingProject,
+			pinned: storageKey === SAVED_PROJECTS_KEY ? incomingProject.pinned ?? false : false
+		});
+
 		await this.writeProjects(storageKey, projects);
-		return incomingProject;
+		const insertedProject = projects.find((project) => comparePaths(project.path, incomingProject.path));
+		if (!insertedProject) {
+			throw new Error('Failed to upsert project in storage.');
+		}
+
+		return insertedProject;
 	}
 
 	private async readProjects(storageKey: ProjectListKey): Promise<Project[]> {
 		const rawValue = this.context.globalState.get<unknown>(storageKey, []);
 		const parsedProjects = Array.isArray(rawValue) ? rawValue.filter(isProject) : [];
-		const validProjects = await this.filterExistingProjects(parsedProjects);
-		const sortedProjects = sortByLastAccessed(validProjects);
+		const existingProjects = await this.filterExistingProjects(parsedProjects);
+		const normalizedProjects = existingProjects.map((project) => ({
+			...project,
+			pinned: project.pinned ?? false
+		}));
+		const constrainedProjects = this.applyListConstraints(storageKey, normalizedProjects);
 
-		if (sortedProjects.length !== parsedProjects.length) {
-			await this.writeProjects(storageKey, sortedProjects);
+		if (!areProjectListsEqual(normalizedProjects, constrainedProjects) || parsedProjects.length !== constrainedProjects.length) {
+			await this.writeProjects(storageKey, constrainedProjects);
 		}
 
-		return sortedProjects;
+		return constrainedProjects;
 	}
 
 	private async writeProjects(storageKey: ProjectListKey, projects: Project[]): Promise<void> {
-		await this.context.globalState.update(storageKey, sortByLastAccessed(projects));
+		await this.context.globalState.update(storageKey, this.applyListConstraints(storageKey, projects));
+	}
+
+	private applyListConstraints(storageKey: ProjectListKey, projects: Project[]): Project[] {
+		const normalizedProjects = projects.map((project) => ({
+			...project,
+			pinned: storageKey === SAVED_PROJECTS_KEY ? project.pinned ?? false : false
+		}));
+
+		if (storageKey === SAVED_PROJECTS_KEY) {
+			return sortSavedProjects(normalizedProjects);
+		}
+
+		const { maxHistoryEntries } = this.configProvider.getConfig();
+		return sortByLastAccessed(normalizedProjects).slice(0, maxHistoryEntries);
 	}
 
 	private async filterExistingProjects(projects: Project[]): Promise<Project[]> {
@@ -125,161 +194,38 @@ export class ProjectService {
 	}
 }
 
-export async function detectProjectType(rootPath: string): Promise<ProjectType> {
-	const rootMarker = await detectMarkerAtDirectory(rootPath);
-
-	if (rootMarker !== undefined) {
-		return rootMarker;
-	}
-
-	const queue: Array<{ directory: string; depth: number }> = [{ directory: rootPath, depth: 0 }];
-
-	while (queue.length > 0) {
-		const current = queue.shift();
-		if (current === undefined) {
-			continue;
+function sortSavedProjects(projects: Project[]): Project[] {
+	return [...projects].sort((left, right) => {
+		const leftPinnedRank = left.pinned ? 0 : 1;
+		const rightPinnedRank = right.pinned ? 0 : 1;
+		if (leftPinnedRank !== rightPinnedRank) {
+			return leftPinnedRank - rightPinnedRank;
 		}
 
-		if (current.depth >= MAX_DEEP_SCAN_DEPTH) {
-			continue;
-		}
-
-		const childDirectories = await readChildDirectories(current.directory);
-
-		for (const childDirectory of childDirectories) {
-			const detectedMarker = await detectMarkerAtDirectory(childDirectory);
-			if (detectedMarker !== undefined) {
-				return detectedMarker;
-			}
-
-			queue.push({ directory: childDirectory, depth: current.depth + 1 });
-		}
-	}
-
-	return 'Generic';
-}
-
-async function detectMarkerAtDirectory(directoryPath: string): Promise<ProjectType | undefined> {
-	const packageJsonPath = path.join(directoryPath, 'package.json');
-	if (await fileExists(packageJsonPath)) {
-		return detectNodeProjectType(packageJsonPath);
-	}
-
-	const requirementsPath = path.join(directoryPath, 'requirements.txt');
-	if (await fileExists(requirementsPath)) {
-		return 'Python';
-	}
-
-	const pyprojectPath = path.join(directoryPath, 'pyproject.toml');
-	if (await fileExists(pyprojectPath)) {
-		return 'Python';
-	}
-
-	const cargoTomlPath = path.join(directoryPath, 'Cargo.toml');
-	if (await fileExists(cargoTomlPath)) {
-		return 'Rust';
-	}
-
-	const goModPath = path.join(directoryPath, 'go.mod');
-	if (await fileExists(goModPath)) {
-		return 'Go';
-	}
-
-	return undefined;
-}
-
-async function detectNodeProjectType(packageJsonPath: string): Promise<ProjectType> {
-	const packageJsonContent = await fs.readFile(packageJsonPath, 'utf8');
-	let parsedPackage: unknown = undefined;
-
-	try {
-		parsedPackage = JSON.parse(packageJsonContent);
-	} catch (error: unknown) {
-		if (error instanceof SyntaxError) {
-			return 'Generic';
-		}
-		throw error;
-	}
-
-	const dependencies = {
-		...readDependencyMap(parsedPackage, 'dependencies'),
-		...readDependencyMap(parsedPackage, 'devDependencies')
-	};
-
-	if (hasOwn(dependencies, 'react') || hasOwn(dependencies, 'next')) {
-		return 'React';
-	}
-
-	return 'Generic';
-}
-
-function readDependencyMap(packageJson: unknown, key: 'dependencies' | 'devDependencies'): Record<string, string> {
-	if (!isRecord(packageJson)) {
-		return {};
-	}
-
-	const rawDependencies = packageJson[key];
-	if (!isRecord(rawDependencies)) {
-		return {};
-	}
-
-	const dependencies: Record<string, string> = {};
-	for (const [name, version] of Object.entries(rawDependencies)) {
-		if (typeof version === 'string') {
-			dependencies[name] = version;
-		}
-	}
-
-	return dependencies;
-}
-
-async function readChildDirectories(directoryPath: string): Promise<string[]> {
-	try {
-		const entries = await fs.readdir(directoryPath, { withFileTypes: true });
-		return entries
-			.filter((entry) => entry.isDirectory() && !shouldSkipDirectory(entry.name))
-			.map((entry) => path.join(directoryPath, entry.name));
-	} catch (error: unknown) {
-		if (isDirectoryReadError(error)) {
-			return [];
-		}
-
-		throw error;
-	}
-}
-
-function shouldSkipDirectory(directoryName: string): boolean {
-	return directoryName === 'node_modules' || directoryName === '.git';
-}
-
-async function fileExists(filePath: string): Promise<boolean> {
-	try {
-		await fs.access(filePath);
-		return true;
-	} catch (error: unknown) {
-		if (isMissingPathError(error)) {
-			return false;
-		}
-
-		throw error;
-	}
-}
-
-function createProjectId(projectPath: string): string {
-	const normalizedPath = normalizePath(projectPath);
-	return Buffer.from(normalizedPath).toString('base64url');
-}
-
-function normalizePath(projectPath: string): string {
-	return process.platform === 'win32' ? projectPath.toLowerCase() : projectPath;
-}
-
-function comparePaths(leftPath: string, rightPath: string): boolean {
-	return normalizePath(leftPath) === normalizePath(rightPath);
+		return right.lastAccessed - left.lastAccessed;
+	});
 }
 
 function sortByLastAccessed(projects: Project[]): Project[] {
 	return [...projects].sort((left, right) => right.lastAccessed - left.lastAccessed);
+}
+
+function areProjectListsEqual(left: Project[], right: Project[]): boolean {
+	if (left.length !== right.length) {
+		return false;
+	}
+
+	return left.every((leftProject, index) => {
+		const rightProject = right[index];
+		return (
+			leftProject.id === rightProject.id &&
+			leftProject.name === rightProject.name &&
+			leftProject.path === rightProject.path &&
+			leftProject.type === rightProject.type &&
+			leftProject.lastAccessed === rightProject.lastAccessed &&
+			(leftProject.pinned ?? false) === (rightProject.pinned ?? false)
+		);
+	});
 }
 
 function isProject(value: unknown): value is Project {
@@ -292,7 +238,8 @@ function isProject(value: unknown): value is Project {
 		typeof value.name === 'string' &&
 		typeof value.path === 'string' &&
 		isProjectType(value.type) &&
-		typeof value.lastAccessed === 'number'
+		typeof value.lastAccessed === 'number' &&
+		(value.pinned === undefined || typeof value.pinned === 'boolean')
 	);
 }
 
@@ -308,14 +255,6 @@ function isMissingPathError(error: unknown): boolean {
 	return isNodeError(error) && (error.code === 'ENOENT' || error.code === 'ENOTDIR');
 }
 
-function isDirectoryReadError(error: unknown): boolean {
-	return isNodeError(error) && (error.code === 'ENOENT' || error.code === 'EACCES' || error.code === 'EPERM');
-}
-
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
 	return typeof error === 'object' && error !== null && 'code' in error;
-}
-
-function hasOwn(record: Record<string, string>, key: string): boolean {
-	return Object.prototype.hasOwnProperty.call(record, key);
 }

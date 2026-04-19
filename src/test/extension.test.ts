@@ -1,15 +1,34 @@
 import * as assert from 'assert';
-
-// You can import and use all API from the 'vscode' module
-// as well as import your extension to test it
 import * as vscode from 'vscode';
-// import * as myExtension from '../../extension';
 
-suite('Extension Test Suite', () => {
-	vscode.window.showInformationMessage('Start all tests.');
+suite('Extension Integration', () => {
+	test('registers project launcher commands on activation', async () => {
+		const extension = vscode.extensions.all.find((entry) => entry.packageJSON?.name === 'project-launcher');
+		assert.ok(extension, 'Expected project-launcher extension to be available in test host');
 
-	test('Sample test', () => {
-		assert.strictEqual(-1, [1, 2, 3].indexOf(5));
-		assert.strictEqual(-1, [1, 2, 3].indexOf(0));
+		await extension.activate();
+
+		const commands = await vscode.commands.getCommands(true);
+		const expectedCommandIds = [
+			'projectLauncher.addCurrentProject',
+			'projectLauncher.openProject',
+			'projectLauncher.removeProject',
+			'projectLauncher.pinProject',
+			'projectLauncher.unpinProject',
+			'projectLauncher.removeHistoryProject',
+			'projectLauncher.clearHistory',
+			'projectLauncher.filterProjects',
+			'projectLauncher.clearFilter',
+			'projectLauncher.refresh'
+		];
+
+		for (const commandId of expectedCommandIds) {
+			assert.ok(commands.includes(commandId), `Expected command ${commandId} to be registered`);
+		}
+	});
+
+	test('refresh and clear-filter commands execute without throwing', async () => {
+		await vscode.commands.executeCommand('projectLauncher.refresh');
+		await vscode.commands.executeCommand('projectLauncher.clearFilter');
 	});
 });

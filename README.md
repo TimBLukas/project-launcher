@@ -1,71 +1,53 @@
-# project-launcher README
+# Project Launcher
 
-This is the README for your extension "project-launcher". After writing up a brief description, we recommend including the following sections.
+Project Launcher adds a dedicated Activity Bar view to manage your saved projects and recent workspace history.
 
 ## Features
 
-Describe specific features of your extension including screenshots of your extension in action. Image paths are relative to this README file.
+- Save the current workspace folder as a project.
+- Auto-track workspace folders you open as recent history.
+- Open any saved/history project from the tree view or command palette.
+- Pin saved projects so they stay at the top of the saved list.
+- Remove individual saved projects and history entries.
+- Clear the full history list with one command.
+- Filter tree entries by project name, type, or path.
 
-For example if there is an image subfolder under your extension project workspace:
+## Commands
 
-\!\[feature X\]\(images/feature-x.png\)
-
-> Tip: Many popular extensions utilize animations. This is an excellent way to show off your extension! We recommend short, focused animations that are easy to follow.
-
-## Requirements
-
-If you have any requirements or dependencies, add a section describing those and how to install and configure them.
+- `Project Launcher: Add Current Project`
+- `Project Launcher: Open Project`
+- `Project Launcher: Remove Saved Project`
+- `Project Launcher: Pin Saved Project`
+- `Project Launcher: Unpin Saved Project`
+- `Project Launcher: Remove History Entry`
+- `Project Launcher: Clear History`
+- `Project Launcher: Filter Projects`
+- `Project Launcher: Clear Project Filter`
+- `Project Launcher: Refresh`
 
 ## Extension Settings
 
-Include if your extension adds any VS Code settings through the `contributes.configuration` extension point.
-
-For example:
-
 This extension contributes the following settings:
 
-* `myExtension.enable`: Enable/disable this extension.
-* `myExtension.thing`: Set to `blah` to do something.
+- `projectLauncher.maxHistoryEntries`: Maximum number of recent history entries retained.
+- `projectLauncher.maxProjectScanDepth`: Maximum folder depth for project type detection.
+- `projectLauncher.maxProjectScanDirectories`: Maximum number of directories scanned during detection.
+- `projectLauncher.skipDirectories`: Directory names excluded from deep scanning.
+- `projectLauncher.openInNewWindow`: Open selected projects in a new VS Code window.
+- `projectLauncher.enableTypeDetectionCache`: Enable/disable project type detection cache.
+- `projectLauncher.typeDetectionCacheTtlMs`: Cache lifetime for project type detection results in milliseconds.
 
-## Known Issues
+## Development
 
-Calling out known issues can help limit users opening duplicate issues against your extension.
+```bash
+npm ci
+npm run compile
+npm run lint
+npm test
+```
 
-## Release Notes
+Create a VSIX package:
 
-Users appreciate release notes as you update your extension.
-
-### 1.0.0
-
-Initial release of ...
-
-### 1.0.1
-
-Fixed issue #.
-
-### 1.1.0
-
-Added features X, Y, and Z.
-
----
-
-## Following extension guidelines
-
-Ensure that you've read through the extensions guidelines and follow the best practices for creating your extension.
-
-* [Extension Guidelines](https://code.visualstudio.com/api/references/extension-guidelines)
-
-## Working with Markdown
-
-You can author your README using Visual Studio Code. Here are some useful editor keyboard shortcuts:
-
-* Split the editor (`Cmd+\` on macOS or `Ctrl+\` on Windows and Linux).
-* Toggle preview (`Shift+Cmd+V` on macOS or `Shift+Ctrl+V` on Windows and Linux).
-* Press `Ctrl+Space` (Windows, Linux, macOS) to see a list of Markdown snippets.
-
-## For more information
-
-* [Visual Studio Code's Markdown Support](http://code.visualstudio.com/docs/languages/markdown)
-* [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
-
-**Enjoy!**
+```bash
+npm run package:vsix
+```
