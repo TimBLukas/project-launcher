@@ -1,4 +1,6 @@
 import * as assert from 'assert';
+import { ProjectLauncherConfig, ProjectConfigProvider } from '../config';
+import { GitMetadataService } from '../gitMetadataService';
 import { ProjectProvider, ProjectTreeItem } from '../projectProvider';
 import { Project } from '../projectService';
 
@@ -17,26 +19,73 @@ class FakeProjectQueryService {
 	}
 }
 
+class StaticConfigProvider implements ProjectConfigProvider {
+	public constructor(private readonly config: ProjectLauncherConfig) {}
+
+	public getConfig(): ProjectLauncherConfig {
+		return this.config;
+	}
+}
+
+class NoopGitMetadataService extends GitMetadataService {
+	public override async getMetadata(): Promise<undefined> {
+		return undefined;
+	}
+}
+
 suite('ProjectProvider', () => {
 	function createProject(
 		id: string,
 		name: string,
 		type: Project['type'],
 		lastAccessed: number,
-		pinned = false
+		options: Partial<Project> = {}
 	): Project {
 		return {
 			id,
 			name,
 			type,
 			path: `/tmp/${name}`,
+			target: 'folder',
 			lastAccessed,
-			pinned
+			pinned: false,
+			tags: [],
+			...options
 		};
 	}
 
+	function createConfig(overrides: Partial<ProjectLauncherConfig> = {}): ProjectLauncherConfig {
+		return {
+			maxHistoryEntries: 100,
+			maxProjectScanDepth: 2,
+			maxProjectScanDirectories: 250,
+			skipDirectories: ['node_modules', '.git'],
+			openInNewWindow: false,
+			enableTypeDetectionCache: true,
+			typeDetectionCacheTtlMs: 300000,
+			sortMode: 'lastAccessed',
+			groupSavedByCollection: true,
+			showGitMetadata: false,
+			gitMetadataCacheTtlMs: 30000,
+			customActions: [],
+			...overrides
+		};
+	}
+
+	function createProvider(
+		savedProjects: Project[],
+		historyProjects: Project[],
+		configOverrides: Partial<ProjectLauncherConfig> = {}
+	): ProjectProvider {
+		return new ProjectProvider(
+			new FakeProjectQueryService(savedProjects, historyProjects),
+			new StaticConfigProvider(createConfig(configOverrides)),
+			new NoopGitMetadataService()
+		);
+	}
+
 	test('returns section nodes at root', async () => {
-		const provider = new ProjectProvider(new FakeProjectQueryService([], []));
+		const provider = createProvider([], []);
 		const rootItems = await provider.getChildren();
 
 		assert.strictEqual(rootItems.length, 2);
@@ -46,34 +95,51 @@ suite('ProjectProvider', () => {
 		assert.strictEqual(rootItems[1].section, 'history');
 	});
 
-	test('filters projects by query across name, path and type', async () => {
+	test('groups saved projects by collection', async () => {
 		const saved = [
-			createProject('1', 'frontend-react', 'React', 20),
-			createProject('2', 'service-rust', 'Rust', 10)
+			createProject('1', 'frontend-react', 'React', 20, { collection: 'Client A' }),
+			createProject('2', 'service-rust', 'Rust', 10, { collection: 'Platform' }),
+			createProject('3', 'misc', 'Generic', 9)
 		];
-		const provider = new ProjectProvider(new FakeProjectQueryService(saved, []));
+		const provider = createProvider(saved, []);
 		const savedSection = new ProjectTreeItem('section', 'saved');
 
-		provider.setFilter('react');
-		const filteredItems = await provider.getChildren(savedSection);
-		assert.strictEqual(filteredItems.length, 1);
-		assert.strictEqual(filteredItems[0].project?.name, 'frontend-react');
+		const groups = await provider.getChildren(savedSection);
+		assert.strictEqual(groups.length, 3);
+		assert.strictEqual(groups[0].nodeType, 'collection');
+		assert.strictEqual(groups[0].collectionName, 'Client A');
+		assert.strictEqual(groups[2].collectionName, 'Uncategorized');
+	});
 
-		provider.clearFilter();
-		const allItems = await provider.getChildren(savedSection);
-		assert.strictEqual(allItems.length, 2);
+	test('filters projects by query across tags and collection', async () => {
+		const saved = [
+			createProject('1', 'frontend-react', 'React', 20, { tags: ['frontend'], collection: 'Client A' }),
+			createProject('2', 'service-rust', 'Rust', 10, { tags: ['backend'], collection: 'Platform' })
+		];
+		const provider = createProvider(saved, [], { groupSavedByCollection: false });
+		const savedSection = new ProjectTreeItem('section', 'saved');
+
+		provider.setFilter('client a');
+		const filteredByCollection = await provider.getChildren(savedSection);
+		assert.strictEqual(filteredByCollection.length, 1);
+		assert.strictEqual(filteredByCollection[0].project?.name, 'frontend-react');
+
+		provider.setFilter('backend');
+		const filteredByTag = await provider.getChildren(savedSection);
+		assert.strictEqual(filteredByTag.length, 1);
+		assert.strictEqual(filteredByTag[0].project?.name, 'service-rust');
 	});
 
 	test('applies dedicated context values for pinned and unpinned saved projects', () => {
 		const pinnedProjectItem = new ProjectTreeItem(
 			'project',
 			'saved',
-			createProject('saved-1', 'alpha', 'React', Date.now(), true)
+			createProject('saved-1', 'alpha', 'React', Date.now(), { pinned: true })
 		);
 		const unpinnedProjectItem = new ProjectTreeItem(
 			'project',
 			'saved',
-			createProject('saved-2', 'beta', 'Python', Date.now(), false)
+			createProject('saved-2', 'beta', 'Python', Date.now(), { pinned: false })
 		);
 
 		assert.strictEqual(pinnedProjectItem.contextValue, 'project.saved.pinned');

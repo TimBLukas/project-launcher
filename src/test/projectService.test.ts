@@ -53,6 +53,13 @@ suite('ProjectService', () => {
 		return vscode.Uri.file(projectDirectory);
 	}
 
+	async function createWorkspaceFile(workspaceName: string): Promise<vscode.Uri> {
+		const workspaceDirectory = await createTempDirectory(`${workspaceName}-workspace`);
+		const workspacePath = path.join(workspaceDirectory, `${workspaceName}.code-workspace`);
+		await fs.writeFile(workspacePath, JSON.stringify({ folders: [{ path: '.' }] }, null, 2), 'utf8');
+		return vscode.Uri.file(workspacePath);
+	}
+
 	function createService(config: Partial<ProjectLauncherConfig> = {}): ProjectService {
 		const baseConfig: ProjectLauncherConfig = {
 			maxHistoryEntries: 100,
@@ -61,7 +68,12 @@ suite('ProjectService', () => {
 			skipDirectories: ['node_modules', '.git', 'dist', 'build', '.venv', 'venv', '.next', 'target'],
 			openInNewWindow: false,
 			enableTypeDetectionCache: true,
-			typeDetectionCacheTtlMs: 300000
+			typeDetectionCacheTtlMs: 300000,
+			sortMode: 'lastAccessed',
+			groupSavedByCollection: true,
+			showGitMetadata: true,
+			gitMetadataCacheTtlMs: 30000,
+			customActions: []
 		};
 
 		const context = createTestExtensionContext();
@@ -91,6 +103,20 @@ suite('ProjectService', () => {
 		assert.strictEqual(savedProjects[1].pinned, false);
 	});
 
+	test('supports tags and collections for saved projects', async () => {
+		const service = createService();
+		const projectUri = await createProjectDirectory('tagged', 'react');
+		const savedProject = await service.addToSaved(projectUri);
+
+		await service.updateSavedTags(savedProject.id, ['frontend', 'customer-a']);
+		await service.updateSavedCollection(savedProject.id, 'Client Work');
+
+		const updatedProject = (await service.getSavedProjects()).find((project) => project.id === savedProject.id);
+		assert.ok(updatedProject);
+		assert.deepStrictEqual(updatedProject?.tags, ['customer-a', 'frontend']);
+		assert.strictEqual(updatedProject?.collection, 'Client Work');
+	});
+
 	test('limits history list and supports remove/clear', async () => {
 		const service = createService({ maxHistoryEntries: 2 });
 		const first = await createProjectDirectory('history-one', 'go');
@@ -115,19 +141,30 @@ suite('ProjectService', () => {
 		assert.strictEqual(historyAfterClear.length, 0);
 	});
 
-	test('detects project type in nested directories using scan depth', async () => {
-		const service = createService({ maxProjectScanDepth: 2 });
-		const rootDirectory = await createTempDirectory('nested');
-		const nestedDirectory = path.join(rootDirectory, 'apps', 'web');
-		await fs.mkdir(nestedDirectory, { recursive: true });
-		await fs.writeFile(
-			path.join(nestedDirectory, 'package.json'),
-			JSON.stringify({ dependencies: { react: '^19.0.0' } }),
-			'utf8'
-		);
+	test('detects .code-workspace entries and marks target as workspace', async () => {
+		const service = createService();
+		const workspaceUri = await createWorkspaceFile('main');
+		const workspaceProject = await service.addToSaved(workspaceUri);
 
-		const project = await service.addToSaved(vscode.Uri.file(rootDirectory));
-		assert.strictEqual(project.type, 'React');
+		assert.strictEqual(workspaceProject.target, 'workspace');
+		assert.strictEqual(workspaceProject.type, 'Workspace');
+		assert.ok(workspaceProject.path.endsWith('.code-workspace'));
+	});
+
+	test('exports and imports snapshots', async () => {
+		const service = createService();
+		const projectUri = await createProjectDirectory('snapshot', 'react');
+		const savedProject = await service.addToSaved(projectUri);
+		await service.updateSavedTags(savedProject.id, ['snapshot']);
+
+		const snapshot = await service.exportSnapshot();
+		const replacementService = createService();
+		const result = await replacementService.importSnapshot(snapshot, 'replace');
+		assert.strictEqual(result.savedCount, 1);
+		assert.strictEqual(result.historyCount, 0);
+
+		const importedProject = (await replacementService.getSavedProjects())[0];
+		assert.deepStrictEqual(importedProject.tags, ['snapshot']);
 	});
 
 	test('removes stale entries when folder no longer exists', async () => {

@@ -12,13 +12,24 @@ suite('Extension Integration', () => {
 		const expectedCommandIds = [
 			'projectLauncher.addCurrentProject',
 			'projectLauncher.openProject',
+			'projectLauncher.openProjectCurrentWindow',
+			'projectLauncher.openProjectNewWindow',
+			'projectLauncher.openProjectSplit',
+			'projectLauncher.openProjectNewWorkspace',
+			'projectLauncher.quickOpenProject',
 			'projectLauncher.removeProject',
 			'projectLauncher.pinProject',
 			'projectLauncher.unpinProject',
+			'projectLauncher.editProjectTags',
+			'projectLauncher.setProjectCollection',
 			'projectLauncher.removeHistoryProject',
 			'projectLauncher.clearHistory',
 			'projectLauncher.filterProjects',
 			'projectLauncher.clearFilter',
+			'projectLauncher.setSortMode',
+			'projectLauncher.exportProjects',
+			'projectLauncher.importProjects',
+			'projectLauncher.runProjectAction',
 			'projectLauncher.refresh'
 		];
 

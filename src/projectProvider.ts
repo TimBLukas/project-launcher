@@ -1,27 +1,44 @@
 import * as vscode from 'vscode';
+import { ProjectConfigProvider, VscodeProjectConfigProvider } from './config';
+import { GitMetadata, GitMetadataService } from './gitMetadataService';
+import { sortProjects } from './projectSort';
 import { Project } from './projectService';
 
 type ProjectSection = 'saved' | 'history';
+const UNCATEGORIZED_COLLECTION = 'Uncategorized';
 
 export interface ProjectQueryService {
 	getSavedProjects(): Promise<Project[]>;
 	getHistoryProjects(): Promise<Project[]>;
 }
 
+interface ProjectDisplayEntry {
+	project: Project;
+	gitMetadata: GitMetadata | undefined;
+}
+
 export class ProjectTreeItem extends vscode.TreeItem {
 	public constructor(
-		public readonly nodeType: 'section' | 'project',
+		public readonly nodeType: 'section' | 'collection' | 'project',
 		public readonly section: ProjectSection,
-		public readonly project?: Project
+		public readonly project?: Project,
+		public readonly collectionName?: string,
+		public readonly gitMetadata?: GitMetadata
 	) {
 		super(
-			nodeType === 'section' ? (section === 'saved' ? 'Saved Projects' : 'Recent History') : (project?.name ?? ''),
-			nodeType === 'section' ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.None
+			resolveLabel(nodeType, section, project, collectionName),
+			nodeType === 'project' ? vscode.TreeItemCollapsibleState.None : vscode.TreeItemCollapsibleState.Expanded
 		);
 
 		if (nodeType === 'section') {
 			this.contextValue = section === 'saved' ? 'section.saved' : 'section.history';
 			this.iconPath = new vscode.ThemeIcon(section === 'saved' ? 'briefcase' : 'history');
+			return;
+		}
+
+		if (nodeType === 'collection') {
+			this.contextValue = 'collection.saved';
+			this.iconPath = new vscode.ThemeIcon('folder-library');
 			return;
 		}
 
@@ -31,15 +48,9 @@ export class ProjectTreeItem extends vscode.TreeItem {
 
 		this.contextValue =
 			section === 'saved' ? (project.pinned ? 'project.saved.pinned' : 'project.saved.unpinned') : 'project.history';
-		this.iconPath = new vscode.ThemeIcon(section === 'saved' && project.pinned ? 'star-full' : 'folder');
-		this.description = `${project.type} • ${project.path}`;
-		this.tooltip = [
-			project.name,
-			project.path,
-			`Type: ${project.type}`,
-			`Pinned: ${project.pinned ? 'yes' : 'no'}`,
-			`Last accessed: ${new Date(project.lastAccessed).toLocaleString()}`
-		].join('\n');
+		this.iconPath = projectIcon(project, section);
+		this.description = projectDescription(project, gitMetadata);
+		this.tooltip = projectTooltip(project, gitMetadata);
 		this.command = {
 			command: 'projectLauncher.openProject',
 			title: 'Open Project',
@@ -55,7 +66,11 @@ export class ProjectProvider implements vscode.TreeDataProvider<ProjectTreeItem>
 
 	public readonly onDidChangeTreeData = this.onDidChangeTreeDataEmitter.event;
 
-	public constructor(private readonly projectService: ProjectQueryService) {}
+	public constructor(
+		private readonly projectService: ProjectQueryService,
+		private readonly configProvider: ProjectConfigProvider = new VscodeProjectConfigProvider(),
+		private readonly gitMetadataService: GitMetadataService = new GitMetadataService()
+	) {}
 
 	public dispose(): void {
 		for (const disposable of this.disposables) {
@@ -90,21 +105,160 @@ export class ProjectProvider implements vscode.TreeDataProvider<ProjectTreeItem>
 			return [new ProjectTreeItem('section', 'saved'), new ProjectTreeItem('section', 'history')];
 		}
 
-		if (element.nodeType !== 'section') {
-			return [];
+		if (element.nodeType === 'section') {
+			return this.getSectionChildren(element.section);
 		}
 
-		const projects =
-			element.section === 'saved'
-				? await this.projectService.getSavedProjects()
-				: await this.projectService.getHistoryProjects();
-		const visibleProjects = applyProjectFilter(projects, this.filterQuery);
-		return visibleProjects.map((project) => new ProjectTreeItem('project', element.section, project));
+		if (element.nodeType === 'collection') {
+			return this.getSavedCollectionChildren(element.collectionName);
+		}
+
+		return [];
 	}
 
 	public getTreeItem(element: ProjectTreeItem): vscode.TreeItem {
 		return element;
 	}
+
+	private async getSectionChildren(section: ProjectSection): Promise<ProjectTreeItem[]> {
+		const config = this.configProvider.getConfig();
+		const projects = await this.getVisibleSortedProjects(section);
+
+		if (section === 'saved' && config.groupSavedByCollection) {
+			const collections = Array.from(
+				new Set(
+					projects.map((project) =>
+						project.collection && project.collection.trim().length > 0
+							? project.collection
+							: UNCATEGORIZED_COLLECTION
+					)
+				)
+			).sort((left, right) => {
+				if (left === UNCATEGORIZED_COLLECTION) {
+					return 1;
+				}
+				if (right === UNCATEGORIZED_COLLECTION) {
+					return -1;
+				}
+
+				return left.localeCompare(right, undefined, { sensitivity: 'base' });
+			});
+
+			return collections.map((collectionName) => new ProjectTreeItem('collection', 'saved', undefined, collectionName));
+		}
+
+		const displayEntries = await this.getDisplayEntries(projects);
+		return displayEntries.map(
+			(entry) => new ProjectTreeItem('project', section, entry.project, undefined, entry.gitMetadata)
+		);
+	}
+
+	private async getSavedCollectionChildren(collectionName: string | undefined): Promise<ProjectTreeItem[]> {
+		if (!collectionName) {
+			return [];
+		}
+
+		const projects = (await this.getVisibleSortedProjects('saved')).filter(
+			(project) => normalizeCollectionName(project.collection) === collectionName
+		);
+		const displayEntries = await this.getDisplayEntries(projects);
+		return displayEntries.map(
+			(entry) => new ProjectTreeItem('project', 'saved', entry.project, collectionName, entry.gitMetadata)
+		);
+	}
+
+	private async getVisibleSortedProjects(section: ProjectSection): Promise<Project[]> {
+		const config = this.configProvider.getConfig();
+		const projects = section === 'saved' ? await this.projectService.getSavedProjects() : await this.projectService.getHistoryProjects();
+		const visibleProjects = applyProjectFilter(projects, this.filterQuery);
+		return sortProjects(visibleProjects, config.sortMode, section === 'saved');
+	}
+
+	private async getDisplayEntries(projects: Project[]): Promise<ProjectDisplayEntry[]> {
+		const config = this.configProvider.getConfig();
+		if (!config.showGitMetadata) {
+			return projects.map((project) => ({ project, gitMetadata: undefined }));
+		}
+
+		return Promise.all(
+			projects.map(async (project) => ({
+				project,
+				gitMetadata: await this.gitMetadataService.getMetadata(project, config.gitMetadataCacheTtlMs)
+			}))
+		);
+	}
+}
+
+function resolveLabel(
+	nodeType: ProjectTreeItem['nodeType'],
+	section: ProjectSection,
+	project?: Project,
+	collectionName?: string
+): string {
+	if (nodeType === 'section') {
+		return section === 'saved' ? 'Saved Projects' : 'Recent History';
+	}
+
+	if (nodeType === 'collection') {
+		return collectionName ?? UNCATEGORIZED_COLLECTION;
+	}
+
+	return project?.name ?? '';
+}
+
+function projectIcon(project: Project, section: ProjectSection): vscode.ThemeIcon {
+	if (section === 'saved' && project.pinned) {
+		return new vscode.ThemeIcon('star-full');
+	}
+
+	return new vscode.ThemeIcon(project.target === 'workspace' ? 'files' : 'folder');
+}
+
+function projectDescription(project: Project, gitMetadata: GitMetadata | undefined): string {
+	const details: string[] = [
+		project.type,
+		project.target === 'workspace' ? 'workspace' : 'folder'
+	];
+
+	if (project.collection) {
+		details.push(project.collection);
+	}
+
+	if (project.tags && project.tags.length > 0) {
+		details.push(project.tags.map((tag) => `#${tag}`).join(' '));
+	}
+
+	if (gitMetadata) {
+		details.push(formatGitDescription(gitMetadata));
+	}
+
+	details.push(project.path);
+	return details.join(' • ');
+}
+
+function projectTooltip(project: Project, gitMetadata: GitMetadata | undefined): string {
+	const lines = [
+		project.name,
+		project.path,
+		`Type: ${project.type}`,
+		`Target: ${project.target}`,
+		`Pinned: ${project.pinned ? 'yes' : 'no'}`,
+		`Collection: ${project.collection ?? 'none'}`,
+		`Tags: ${(project.tags ?? []).join(', ') || 'none'}`,
+		`Last accessed: ${new Date(project.lastAccessed).toLocaleString()}`
+	];
+
+	if (gitMetadata) {
+		lines.push(`Git: ${formatGitDescription(gitMetadata)}`);
+		lines.push(`Git root: ${gitMetadata.repositoryRoot}`);
+	}
+
+	return lines.join('\n');
+}
+
+function formatGitDescription(gitMetadata: GitMetadata): string {
+	const dirtySuffix = gitMetadata.dirty ? '*' : '';
+	return `${gitMetadata.branch}${dirtySuffix} (${gitMetadata.lastCommit})`;
 }
 
 function normalizeFilterQuery(filterQuery: string | undefined): string | undefined {
@@ -128,6 +282,16 @@ function projectMatchesFilter(project: Project, filterQuery: string): boolean {
 	return (
 		project.name.toLowerCase().includes(filterQuery) ||
 		project.path.toLowerCase().includes(filterQuery) ||
-		project.type.toLowerCase().includes(filterQuery)
+		project.type.toLowerCase().includes(filterQuery) ||
+		(project.collection ?? '').toLowerCase().includes(filterQuery) ||
+		(project.tags ?? []).some((tag) => tag.toLowerCase().includes(filterQuery))
 	);
+}
+
+function normalizeCollectionName(collection: string | undefined): string {
+	if (!collection || collection.trim().length === 0) {
+		return UNCATEGORIZED_COLLECTION;
+	}
+
+	return collection;
 }

@@ -1,7 +1,7 @@
 {
   "name": "project-launcher",
   "displayName": "Project Launcher",
-  "description": "Manage saved projects and auto-track recent workspace history.",
+  "description": "Manage saved projects, workspace files, tags, collections, and recent history.",
   "version": "0.0.1",
   "publisher": "timblukas",
   "engines": {
@@ -15,20 +15,33 @@
     "workspace",
     "launcher",
     "history",
-    "favorites"
+    "favorites",
+    "tags",
+    "collections"
   ],
   "activationEvents": [
     "onStartupFinished",
     "onView:projectLauncherView",
     "onCommand:projectLauncher.addCurrentProject",
     "onCommand:projectLauncher.openProject",
+    "onCommand:projectLauncher.openProjectCurrentWindow",
+    "onCommand:projectLauncher.openProjectNewWindow",
+    "onCommand:projectLauncher.openProjectSplit",
+    "onCommand:projectLauncher.openProjectNewWorkspace",
+    "onCommand:projectLauncher.quickOpenProject",
     "onCommand:projectLauncher.removeProject",
     "onCommand:projectLauncher.pinProject",
     "onCommand:projectLauncher.unpinProject",
+    "onCommand:projectLauncher.editProjectTags",
+    "onCommand:projectLauncher.setProjectCollection",
     "onCommand:projectLauncher.removeHistoryProject",
     "onCommand:projectLauncher.clearHistory",
     "onCommand:projectLauncher.filterProjects",
     "onCommand:projectLauncher.clearFilter",
+    "onCommand:projectLauncher.setSortMode",
+    "onCommand:projectLauncher.exportProjects",
+    "onCommand:projectLauncher.importProjects",
+    "onCommand:projectLauncher.runProjectAction",
     "onCommand:projectLauncher.refresh"
   ],
   "main": "./out/extension.js",
@@ -67,6 +80,31 @@
         "category": "Project Launcher"
       },
       {
+        "command": "projectLauncher.openProjectCurrentWindow",
+        "title": "Project Launcher: Open in Current Window",
+        "category": "Project Launcher"
+      },
+      {
+        "command": "projectLauncher.openProjectNewWindow",
+        "title": "Project Launcher: Open in New Window",
+        "category": "Project Launcher"
+      },
+      {
+        "command": "projectLauncher.openProjectSplit",
+        "title": "Project Launcher: Open in Split",
+        "category": "Project Launcher"
+      },
+      {
+        "command": "projectLauncher.openProjectNewWorkspace",
+        "title": "Project Launcher: Open in New Workspace",
+        "category": "Project Launcher"
+      },
+      {
+        "command": "projectLauncher.quickOpenProject",
+        "title": "Project Launcher: Quick Open",
+        "category": "Project Launcher"
+      },
+      {
         "command": "projectLauncher.removeProject",
         "title": "Project Launcher: Remove Saved Project",
         "category": "Project Launcher"
@@ -79,6 +117,16 @@
       {
         "command": "projectLauncher.unpinProject",
         "title": "Project Launcher: Unpin Saved Project",
+        "category": "Project Launcher"
+      },
+      {
+        "command": "projectLauncher.editProjectTags",
+        "title": "Project Launcher: Edit Project Tags",
+        "category": "Project Launcher"
+      },
+      {
+        "command": "projectLauncher.setProjectCollection",
+        "title": "Project Launcher: Set Project Collection",
         "category": "Project Launcher"
       },
       {
@@ -102,6 +150,26 @@
         "category": "Project Launcher"
       },
       {
+        "command": "projectLauncher.setSortMode",
+        "title": "Project Launcher: Set Sort Mode",
+        "category": "Project Launcher"
+      },
+      {
+        "command": "projectLauncher.exportProjects",
+        "title": "Project Launcher: Export Projects",
+        "category": "Project Launcher"
+      },
+      {
+        "command": "projectLauncher.importProjects",
+        "title": "Project Launcher: Import Projects",
+        "category": "Project Launcher"
+      },
+      {
+        "command": "projectLauncher.runProjectAction",
+        "title": "Project Launcher: Run Project Action",
+        "category": "Project Launcher"
+      },
+      {
         "command": "projectLauncher.refresh",
         "title": "Project Launcher: Refresh",
         "category": "Project Launcher"
@@ -110,29 +178,49 @@
     "menus": {
       "view/title": [
         {
-          "command": "projectLauncher.addCurrentProject",
+          "command": "projectLauncher.quickOpenProject",
           "when": "view == projectLauncherView",
           "group": "navigation@1"
         },
         {
-          "command": "projectLauncher.filterProjects",
+          "command": "projectLauncher.addCurrentProject",
           "when": "view == projectLauncherView",
           "group": "navigation@2"
         },
         {
-          "command": "projectLauncher.clearFilter",
+          "command": "projectLauncher.filterProjects",
           "when": "view == projectLauncherView",
           "group": "navigation@3"
         },
         {
-          "command": "projectLauncher.refresh",
+          "command": "projectLauncher.clearFilter",
           "when": "view == projectLauncherView",
           "group": "navigation@4"
         },
         {
-          "command": "projectLauncher.clearHistory",
+          "command": "projectLauncher.setSortMode",
           "when": "view == projectLauncherView",
           "group": "navigation@5"
+        },
+        {
+          "command": "projectLauncher.importProjects",
+          "when": "view == projectLauncherView",
+          "group": "navigation@6"
+        },
+        {
+          "command": "projectLauncher.exportProjects",
+          "when": "view == projectLauncherView",
+          "group": "navigation@7"
+        },
+        {
+          "command": "projectLauncher.refresh",
+          "when": "view == projectLauncherView",
+          "group": "navigation@8"
+        },
+        {
+          "command": "projectLauncher.clearHistory",
+          "when": "view == projectLauncherView",
+          "group": "navigation@9"
         }
       ],
       "view/item/context": [
@@ -142,49 +230,79 @@
           "group": "inline@1"
         },
         {
+          "command": "projectLauncher.runProjectAction",
+          "when": "view == projectLauncherView && (viewItem == project.saved.pinned || viewItem == project.saved.unpinned || viewItem == project.history)",
+          "group": "inline@2"
+        },
+        {
           "command": "projectLauncher.pinProject",
           "when": "view == projectLauncherView && viewItem == project.saved.unpinned",
-          "group": "inline@2"
+          "group": "inline@3"
         },
         {
           "command": "projectLauncher.unpinProject",
           "when": "view == projectLauncherView && viewItem == project.saved.pinned",
-          "group": "inline@3"
+          "group": "inline@4"
         },
         {
           "command": "projectLauncher.removeProject",
           "when": "view == projectLauncherView && (viewItem == project.saved.pinned || viewItem == project.saved.unpinned)",
-          "group": "inline@4"
+          "group": "inline@5"
         },
         {
           "command": "projectLauncher.removeHistoryProject",
           "when": "view == projectLauncherView && viewItem == project.history",
-          "group": "inline@5"
+          "group": "inline@6"
         },
         {
-          "command": "projectLauncher.openProject",
+          "command": "projectLauncher.openProjectCurrentWindow",
           "when": "view == projectLauncherView && (viewItem == project.saved.pinned || viewItem == project.saved.unpinned || viewItem == project.history)",
           "group": "navigation@1"
         },
         {
+          "command": "projectLauncher.openProjectNewWindow",
+          "when": "view == projectLauncherView && (viewItem == project.saved.pinned || viewItem == project.saved.unpinned || viewItem == project.history)",
+          "group": "navigation@2"
+        },
+        {
+          "command": "projectLauncher.openProjectSplit",
+          "when": "view == projectLauncherView && (viewItem == project.saved.pinned || viewItem == project.saved.unpinned || viewItem == project.history)",
+          "group": "navigation@3"
+        },
+        {
+          "command": "projectLauncher.openProjectNewWorkspace",
+          "when": "view == projectLauncherView && (viewItem == project.saved.pinned || viewItem == project.saved.unpinned || viewItem == project.history)",
+          "group": "navigation@4"
+        },
+        {
+          "command": "projectLauncher.editProjectTags",
+          "when": "view == projectLauncherView && (viewItem == project.saved.pinned || viewItem == project.saved.unpinned)",
+          "group": "navigation@5"
+        },
+        {
+          "command": "projectLauncher.setProjectCollection",
+          "when": "view == projectLauncherView && (viewItem == project.saved.pinned || viewItem == project.saved.unpinned)",
+          "group": "navigation@6"
+        },
+        {
           "command": "projectLauncher.pinProject",
           "when": "view == projectLauncherView && viewItem == project.saved.unpinned",
-          "group": "navigation@2"
+          "group": "navigation@7"
         },
         {
           "command": "projectLauncher.unpinProject",
           "when": "view == projectLauncherView && viewItem == project.saved.pinned",
-          "group": "navigation@3"
+          "group": "navigation@8"
         },
         {
           "command": "projectLauncher.removeProject",
           "when": "view == projectLauncherView && (viewItem == project.saved.pinned || viewItem == project.saved.unpinned)",
-          "group": "navigation@4"
+          "group": "navigation@9"
         },
         {
           "command": "projectLauncher.removeHistoryProject",
           "when": "view == projectLauncherView && viewItem == project.history",
-          "group": "navigation@5"
+          "group": "navigation@10"
         }
       ]
     },
@@ -232,7 +350,7 @@
         "projectLauncher.openInNewWindow": {
           "type": "boolean",
           "default": false,
-          "description": "Open selected projects in a new VS Code window."
+          "description": "Use new window when running the default Open Project command."
         },
         "projectLauncher.enableTypeDetectionCache": {
           "type": "boolean",
@@ -245,6 +363,81 @@
           "minimum": 1000,
           "maximum": 3600000,
           "description": "How long project type detection cache entries stay valid (milliseconds)."
+        },
+        "projectLauncher.sortMode": {
+          "type": "string",
+          "default": "lastAccessed",
+          "enum": [
+            "lastAccessed",
+            "name",
+            "type",
+            "path"
+          ],
+          "description": "Sort mode used in tree view and quick-open lists."
+        },
+        "projectLauncher.groupSavedByCollection": {
+          "type": "boolean",
+          "default": true,
+          "description": "Group saved projects by collection."
+        },
+        "projectLauncher.showGitMetadata": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show Git branch, dirty state, and last commit metadata in the tree."
+        },
+        "projectLauncher.gitMetadataCacheTtlMs": {
+          "type": "number",
+          "default": 30000,
+          "minimum": 1000,
+          "maximum": 300000,
+          "description": "How long Git metadata stays cached (milliseconds)."
+        },
+        "projectLauncher.customActions": {
+          "type": "array",
+          "description": "Custom terminal actions available per project. Use ${projectPath}, ${projectName}, ${projectType}, ${projectTarget}, ${projectCollection}, ${projectTags}.",
+          "default": [
+            {
+              "label": "npm: dev",
+              "command": "npm run dev",
+              "targetKinds": [
+                "folder"
+              ]
+            },
+            {
+              "label": "npm: test",
+              "command": "npm test",
+              "targetKinds": [
+                "folder"
+              ]
+            }
+          ],
+          "items": {
+            "type": "object",
+            "properties": {
+              "label": {
+                "type": "string"
+              },
+              "command": {
+                "type": "string"
+              },
+              "projectTypes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "targetKinds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "label",
+              "command"
+            ]
+          }
         }
       }
     }
