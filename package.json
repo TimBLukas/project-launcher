@@ -195,32 +195,32 @@
         {
           "command": "projectLauncher.clearFilter",
           "when": "view == projectLauncherView",
-          "group": "navigation@4"
+          "group": "2_manage@1"
         },
         {
           "command": "projectLauncher.setSortMode",
           "when": "view == projectLauncherView",
-          "group": "navigation@5"
+          "group": "2_manage@2"
         },
         {
           "command": "projectLauncher.importProjects",
           "when": "view == projectLauncherView",
-          "group": "navigation@6"
+          "group": "2_manage@3"
         },
         {
           "command": "projectLauncher.exportProjects",
           "when": "view == projectLauncherView",
-          "group": "navigation@7"
+          "group": "2_manage@4"
         },
         {
           "command": "projectLauncher.refresh",
           "when": "view == projectLauncherView",
-          "group": "navigation@8"
+          "group": "2_manage@5"
         },
         {
           "command": "projectLauncher.clearHistory",
           "when": "view == projectLauncherView",
-          "group": "navigation@9"
+          "group": "2_manage@6"
         }
       ],
       "view/item/context": [
