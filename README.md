@@ -1,9 +1,9 @@
 # Project Launcher
 
 Project Launcher adds a dedicated Activity Bar view to manage saved projects, workspace files, collections, and recent history.
+(in vs code)
 
 ## Features
-
 - Save the current workspace folder or `.code-workspace` file as a project.
 - Auto-track opened workspace folders/files as recent history.
 - Organize saved projects using **tags** and **collections**.
@@ -16,7 +16,6 @@ Project Launcher adds a dedicated Activity Bar view to manage saved projects, wo
 - Export and import project data as JSON.
 
 ## Commands
-
 - `Project Launcher: Add Current Project`
 - `Project Launcher: Open Project`
 - `Project Launcher: Open in Current Window`
@@ -40,7 +39,6 @@ Project Launcher adds a dedicated Activity Bar view to manage saved projects, wo
 - `Project Launcher: Refresh`
 
 ## Extension Settings
-
 - `projectLauncher.maxHistoryEntries`: Maximum number of recent history entries retained.
 - `projectLauncher.maxProjectScanDepth`: Maximum folder depth for project type detection.
 - `projectLauncher.maxProjectScanDirectories`: Maximum number of directories scanned during detection.
@@ -57,7 +55,6 @@ Project Launcher adds a dedicated Activity Bar view to manage saved projects, wo
 ## Import/Export Format
 
 Exports create a JSON file with:
-
 - `version`
 - `exportedAt`
 - `savedProjects`
